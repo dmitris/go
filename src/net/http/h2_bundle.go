@@ -31,6 +31,7 @@ import (
 	"log"
 	"math"
 	"net"
+	"net/http"
 	"net/http/httptrace"
 	"net/textproto"
 	"net/url"
@@ -48,9 +49,642 @@ import (
 	"golang_org/x/net/lex/httplex"
 )
 
+const (
+	http2cipher_TLS_NULL_WITH_NULL_NULL               uint16 = 0x0000
+	http2cipher_TLS_RSA_WITH_NULL_MD5                 uint16 = 0x0001
+	http2cipher_TLS_RSA_WITH_NULL_SHA                 uint16 = 0x0002
+	http2cipher_TLS_RSA_EXPORT_WITH_RC4_40_MD5        uint16 = 0x0003
+	http2cipher_TLS_RSA_WITH_RC4_128_MD5              uint16 = 0x0004
+	http2cipher_TLS_RSA_WITH_RC4_128_SHA              uint16 = 0x0005
+	http2cipher_TLS_RSA_EXPORT_WITH_RC2_CBC_40_MD5    uint16 = 0x0006
+	http2cipher_TLS_RSA_WITH_IDEA_CBC_SHA             uint16 = 0x0007
+	http2cipher_TLS_RSA_EXPORT_WITH_DES40_CBC_SHA     uint16 = 0x0008
+	http2cipher_TLS_RSA_WITH_DES_CBC_SHA              uint16 = 0x0009
+	http2cipher_TLS_RSA_WITH_3DES_EDE_CBC_SHA         uint16 = 0x000A
+	http2cipher_TLS_DH_DSS_EXPORT_WITH_DES40_CBC_SHA  uint16 = 0x000B
+	http2cipher_TLS_DH_DSS_WITH_DES_CBC_SHA           uint16 = 0x000C
+	http2cipher_TLS_DH_DSS_WITH_3DES_EDE_CBC_SHA      uint16 = 0x000D
+	http2cipher_TLS_DH_RSA_EXPORT_WITH_DES40_CBC_SHA  uint16 = 0x000E
+	http2cipher_TLS_DH_RSA_WITH_DES_CBC_SHA           uint16 = 0x000F
+	http2cipher_TLS_DH_RSA_WITH_3DES_EDE_CBC_SHA      uint16 = 0x0010
+	http2cipher_TLS_DHE_DSS_EXPORT_WITH_DES40_CBC_SHA uint16 = 0x0011
+	http2cipher_TLS_DHE_DSS_WITH_DES_CBC_SHA          uint16 = 0x0012
+	http2cipher_TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA     uint16 = 0x0013
+	http2cipher_TLS_DHE_RSA_EXPORT_WITH_DES40_CBC_SHA uint16 = 0x0014
+	http2cipher_TLS_DHE_RSA_WITH_DES_CBC_SHA          uint16 = 0x0015
+	http2cipher_TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA     uint16 = 0x0016
+	http2cipher_TLS_DH_anon_EXPORT_WITH_RC4_40_MD5    uint16 = 0x0017
+	http2cipher_TLS_DH_anon_WITH_RC4_128_MD5          uint16 = 0x0018
+	http2cipher_TLS_DH_anon_EXPORT_WITH_DES40_CBC_SHA uint16 = 0x0019
+	http2cipher_TLS_DH_anon_WITH_DES_CBC_SHA          uint16 = 0x001A
+	http2cipher_TLS_DH_anon_WITH_3DES_EDE_CBC_SHA     uint16 = 0x001B
+	// Reserved uint16 =  0x001C-1D
+	http2cipher_TLS_KRB5_WITH_DES_CBC_SHA             uint16 = 0x001E
+	http2cipher_TLS_KRB5_WITH_3DES_EDE_CBC_SHA        uint16 = 0x001F
+	http2cipher_TLS_KRB5_WITH_RC4_128_SHA             uint16 = 0x0020
+	http2cipher_TLS_KRB5_WITH_IDEA_CBC_SHA            uint16 = 0x0021
+	http2cipher_TLS_KRB5_WITH_DES_CBC_MD5             uint16 = 0x0022
+	http2cipher_TLS_KRB5_WITH_3DES_EDE_CBC_MD5        uint16 = 0x0023
+	http2cipher_TLS_KRB5_WITH_RC4_128_MD5             uint16 = 0x0024
+	http2cipher_TLS_KRB5_WITH_IDEA_CBC_MD5            uint16 = 0x0025
+	http2cipher_TLS_KRB5_EXPORT_WITH_DES_CBC_40_SHA   uint16 = 0x0026
+	http2cipher_TLS_KRB5_EXPORT_WITH_RC2_CBC_40_SHA   uint16 = 0x0027
+	http2cipher_TLS_KRB5_EXPORT_WITH_RC4_40_SHA       uint16 = 0x0028
+	http2cipher_TLS_KRB5_EXPORT_WITH_DES_CBC_40_MD5   uint16 = 0x0029
+	http2cipher_TLS_KRB5_EXPORT_WITH_RC2_CBC_40_MD5   uint16 = 0x002A
+	http2cipher_TLS_KRB5_EXPORT_WITH_RC4_40_MD5       uint16 = 0x002B
+	http2cipher_TLS_PSK_WITH_NULL_SHA                 uint16 = 0x002C
+	http2cipher_TLS_DHE_PSK_WITH_NULL_SHA             uint16 = 0x002D
+	http2cipher_TLS_RSA_PSK_WITH_NULL_SHA             uint16 = 0x002E
+	http2cipher_TLS_RSA_WITH_AES_128_CBC_SHA          uint16 = 0x002F
+	http2cipher_TLS_DH_DSS_WITH_AES_128_CBC_SHA       uint16 = 0x0030
+	http2cipher_TLS_DH_RSA_WITH_AES_128_CBC_SHA       uint16 = 0x0031
+	http2cipher_TLS_DHE_DSS_WITH_AES_128_CBC_SHA      uint16 = 0x0032
+	http2cipher_TLS_DHE_RSA_WITH_AES_128_CBC_SHA      uint16 = 0x0033
+	http2cipher_TLS_DH_anon_WITH_AES_128_CBC_SHA      uint16 = 0x0034
+	http2cipher_TLS_RSA_WITH_AES_256_CBC_SHA          uint16 = 0x0035
+	http2cipher_TLS_DH_DSS_WITH_AES_256_CBC_SHA       uint16 = 0x0036
+	http2cipher_TLS_DH_RSA_WITH_AES_256_CBC_SHA       uint16 = 0x0037
+	http2cipher_TLS_DHE_DSS_WITH_AES_256_CBC_SHA      uint16 = 0x0038
+	http2cipher_TLS_DHE_RSA_WITH_AES_256_CBC_SHA      uint16 = 0x0039
+	http2cipher_TLS_DH_anon_WITH_AES_256_CBC_SHA      uint16 = 0x003A
+	http2cipher_TLS_RSA_WITH_NULL_SHA256              uint16 = 0x003B
+	http2cipher_TLS_RSA_WITH_AES_128_CBC_SHA256       uint16 = 0x003C
+	http2cipher_TLS_RSA_WITH_AES_256_CBC_SHA256       uint16 = 0x003D
+	http2cipher_TLS_DH_DSS_WITH_AES_128_CBC_SHA256    uint16 = 0x003E
+	http2cipher_TLS_DH_RSA_WITH_AES_128_CBC_SHA256    uint16 = 0x003F
+	http2cipher_TLS_DHE_DSS_WITH_AES_128_CBC_SHA256   uint16 = 0x0040
+	http2cipher_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA     uint16 = 0x0041
+	http2cipher_TLS_DH_DSS_WITH_CAMELLIA_128_CBC_SHA  uint16 = 0x0042
+	http2cipher_TLS_DH_RSA_WITH_CAMELLIA_128_CBC_SHA  uint16 = 0x0043
+	http2cipher_TLS_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA uint16 = 0x0044
+	http2cipher_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA uint16 = 0x0045
+	http2cipher_TLS_DH_anon_WITH_CAMELLIA_128_CBC_SHA uint16 = 0x0046
+	// Reserved uint16 =  0x0047-4F
+	// Reserved uint16 =  0x0050-58
+	// Reserved uint16 =  0x0059-5C
+	// Unassigned uint16 =  0x005D-5F
+	// Reserved uint16 =  0x0060-66
+	http2cipher_TLS_DHE_RSA_WITH_AES_128_CBC_SHA256 uint16 = 0x0067
+	http2cipher_TLS_DH_DSS_WITH_AES_256_CBC_SHA256  uint16 = 0x0068
+	http2cipher_TLS_DH_RSA_WITH_AES_256_CBC_SHA256  uint16 = 0x0069
+	http2cipher_TLS_DHE_DSS_WITH_AES_256_CBC_SHA256 uint16 = 0x006A
+	http2cipher_TLS_DHE_RSA_WITH_AES_256_CBC_SHA256 uint16 = 0x006B
+	http2cipher_TLS_DH_anon_WITH_AES_128_CBC_SHA256 uint16 = 0x006C
+	http2cipher_TLS_DH_anon_WITH_AES_256_CBC_SHA256 uint16 = 0x006D
+	// Unassigned uint16 =  0x006E-83
+	http2cipher_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA        uint16 = 0x0084
+	http2cipher_TLS_DH_DSS_WITH_CAMELLIA_256_CBC_SHA     uint16 = 0x0085
+	http2cipher_TLS_DH_RSA_WITH_CAMELLIA_256_CBC_SHA     uint16 = 0x0086
+	http2cipher_TLS_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA    uint16 = 0x0087
+	http2cipher_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA    uint16 = 0x0088
+	http2cipher_TLS_DH_anon_WITH_CAMELLIA_256_CBC_SHA    uint16 = 0x0089
+	http2cipher_TLS_PSK_WITH_RC4_128_SHA                 uint16 = 0x008A
+	http2cipher_TLS_PSK_WITH_3DES_EDE_CBC_SHA            uint16 = 0x008B
+	http2cipher_TLS_PSK_WITH_AES_128_CBC_SHA             uint16 = 0x008C
+	http2cipher_TLS_PSK_WITH_AES_256_CBC_SHA             uint16 = 0x008D
+	http2cipher_TLS_DHE_PSK_WITH_RC4_128_SHA             uint16 = 0x008E
+	http2cipher_TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA        uint16 = 0x008F
+	http2cipher_TLS_DHE_PSK_WITH_AES_128_CBC_SHA         uint16 = 0x0090
+	http2cipher_TLS_DHE_PSK_WITH_AES_256_CBC_SHA         uint16 = 0x0091
+	http2cipher_TLS_RSA_PSK_WITH_RC4_128_SHA             uint16 = 0x0092
+	http2cipher_TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA        uint16 = 0x0093
+	http2cipher_TLS_RSA_PSK_WITH_AES_128_CBC_SHA         uint16 = 0x0094
+	http2cipher_TLS_RSA_PSK_WITH_AES_256_CBC_SHA         uint16 = 0x0095
+	http2cipher_TLS_RSA_WITH_SEED_CBC_SHA                uint16 = 0x0096
+	http2cipher_TLS_DH_DSS_WITH_SEED_CBC_SHA             uint16 = 0x0097
+	http2cipher_TLS_DH_RSA_WITH_SEED_CBC_SHA             uint16 = 0x0098
+	http2cipher_TLS_DHE_DSS_WITH_SEED_CBC_SHA            uint16 = 0x0099
+	http2cipher_TLS_DHE_RSA_WITH_SEED_CBC_SHA            uint16 = 0x009A
+	http2cipher_TLS_DH_anon_WITH_SEED_CBC_SHA            uint16 = 0x009B
+	http2cipher_TLS_RSA_WITH_AES_128_GCM_SHA256          uint16 = 0x009C
+	http2cipher_TLS_RSA_WITH_AES_256_GCM_SHA384          uint16 = 0x009D
+	http2cipher_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256      uint16 = 0x009E
+	http2cipher_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384      uint16 = 0x009F
+	http2cipher_TLS_DH_RSA_WITH_AES_128_GCM_SHA256       uint16 = 0x00A0
+	http2cipher_TLS_DH_RSA_WITH_AES_256_GCM_SHA384       uint16 = 0x00A1
+	http2cipher_TLS_DHE_DSS_WITH_AES_128_GCM_SHA256      uint16 = 0x00A2
+	http2cipher_TLS_DHE_DSS_WITH_AES_256_GCM_SHA384      uint16 = 0x00A3
+	http2cipher_TLS_DH_DSS_WITH_AES_128_GCM_SHA256       uint16 = 0x00A4
+	http2cipher_TLS_DH_DSS_WITH_AES_256_GCM_SHA384       uint16 = 0x00A5
+	http2cipher_TLS_DH_anon_WITH_AES_128_GCM_SHA256      uint16 = 0x00A6
+	http2cipher_TLS_DH_anon_WITH_AES_256_GCM_SHA384      uint16 = 0x00A7
+	http2cipher_TLS_PSK_WITH_AES_128_GCM_SHA256          uint16 = 0x00A8
+	http2cipher_TLS_PSK_WITH_AES_256_GCM_SHA384          uint16 = 0x00A9
+	http2cipher_TLS_DHE_PSK_WITH_AES_128_GCM_SHA256      uint16 = 0x00AA
+	http2cipher_TLS_DHE_PSK_WITH_AES_256_GCM_SHA384      uint16 = 0x00AB
+	http2cipher_TLS_RSA_PSK_WITH_AES_128_GCM_SHA256      uint16 = 0x00AC
+	http2cipher_TLS_RSA_PSK_WITH_AES_256_GCM_SHA384      uint16 = 0x00AD
+	http2cipher_TLS_PSK_WITH_AES_128_CBC_SHA256          uint16 = 0x00AE
+	http2cipher_TLS_PSK_WITH_AES_256_CBC_SHA384          uint16 = 0x00AF
+	http2cipher_TLS_PSK_WITH_NULL_SHA256                 uint16 = 0x00B0
+	http2cipher_TLS_PSK_WITH_NULL_SHA384                 uint16 = 0x00B1
+	http2cipher_TLS_DHE_PSK_WITH_AES_128_CBC_SHA256      uint16 = 0x00B2
+	http2cipher_TLS_DHE_PSK_WITH_AES_256_CBC_SHA384      uint16 = 0x00B3
+	http2cipher_TLS_DHE_PSK_WITH_NULL_SHA256             uint16 = 0x00B4
+	http2cipher_TLS_DHE_PSK_WITH_NULL_SHA384             uint16 = 0x00B5
+	http2cipher_TLS_RSA_PSK_WITH_AES_128_CBC_SHA256      uint16 = 0x00B6
+	http2cipher_TLS_RSA_PSK_WITH_AES_256_CBC_SHA384      uint16 = 0x00B7
+	http2cipher_TLS_RSA_PSK_WITH_NULL_SHA256             uint16 = 0x00B8
+	http2cipher_TLS_RSA_PSK_WITH_NULL_SHA384             uint16 = 0x00B9
+	http2cipher_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256     uint16 = 0x00BA
+	http2cipher_TLS_DH_DSS_WITH_CAMELLIA_128_CBC_SHA256  uint16 = 0x00BB
+	http2cipher_TLS_DH_RSA_WITH_CAMELLIA_128_CBC_SHA256  uint16 = 0x00BC
+	http2cipher_TLS_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA256 uint16 = 0x00BD
+	http2cipher_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256 uint16 = 0x00BE
+	http2cipher_TLS_DH_anon_WITH_CAMELLIA_128_CBC_SHA256 uint16 = 0x00BF
+	http2cipher_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256     uint16 = 0x00C0
+	http2cipher_TLS_DH_DSS_WITH_CAMELLIA_256_CBC_SHA256  uint16 = 0x00C1
+	http2cipher_TLS_DH_RSA_WITH_CAMELLIA_256_CBC_SHA256  uint16 = 0x00C2
+	http2cipher_TLS_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA256 uint16 = 0x00C3
+	http2cipher_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256 uint16 = 0x00C4
+	http2cipher_TLS_DH_anon_WITH_CAMELLIA_256_CBC_SHA256 uint16 = 0x00C5
+	// Unassigned uint16 =  0x00C6-FE
+	http2cipher_TLS_EMPTY_RENEGOTIATION_INFO_SCSV uint16 = 0x00FF
+	// Unassigned uint16 =  0x01-55,*
+	http2cipher_TLS_FALLBACK_SCSV uint16 = 0x5600
+	// Unassigned                                   uint16 = 0x5601 - 0xC000
+	http2cipher_TLS_ECDH_ECDSA_WITH_NULL_SHA                 uint16 = 0xC001
+	http2cipher_TLS_ECDH_ECDSA_WITH_RC4_128_SHA              uint16 = 0xC002
+	http2cipher_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA         uint16 = 0xC003
+	http2cipher_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA          uint16 = 0xC004
+	http2cipher_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA          uint16 = 0xC005
+	http2cipher_TLS_ECDHE_ECDSA_WITH_NULL_SHA                uint16 = 0xC006
+	http2cipher_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA             uint16 = 0xC007
+	http2cipher_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA        uint16 = 0xC008
+	http2cipher_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA         uint16 = 0xC009
+	http2cipher_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA         uint16 = 0xC00A
+	http2cipher_TLS_ECDH_RSA_WITH_NULL_SHA                   uint16 = 0xC00B
+	http2cipher_TLS_ECDH_RSA_WITH_RC4_128_SHA                uint16 = 0xC00C
+	http2cipher_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA           uint16 = 0xC00D
+	http2cipher_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA            uint16 = 0xC00E
+	http2cipher_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA            uint16 = 0xC00F
+	http2cipher_TLS_ECDHE_RSA_WITH_NULL_SHA                  uint16 = 0xC010
+	http2cipher_TLS_ECDHE_RSA_WITH_RC4_128_SHA               uint16 = 0xC011
+	http2cipher_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA          uint16 = 0xC012
+	http2cipher_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA           uint16 = 0xC013
+	http2cipher_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA           uint16 = 0xC014
+	http2cipher_TLS_ECDH_anon_WITH_NULL_SHA                  uint16 = 0xC015
+	http2cipher_TLS_ECDH_anon_WITH_RC4_128_SHA               uint16 = 0xC016
+	http2cipher_TLS_ECDH_anon_WITH_3DES_EDE_CBC_SHA          uint16 = 0xC017
+	http2cipher_TLS_ECDH_anon_WITH_AES_128_CBC_SHA           uint16 = 0xC018
+	http2cipher_TLS_ECDH_anon_WITH_AES_256_CBC_SHA           uint16 = 0xC019
+	http2cipher_TLS_SRP_SHA_WITH_3DES_EDE_CBC_SHA            uint16 = 0xC01A
+	http2cipher_TLS_SRP_SHA_RSA_WITH_3DES_EDE_CBC_SHA        uint16 = 0xC01B
+	http2cipher_TLS_SRP_SHA_DSS_WITH_3DES_EDE_CBC_SHA        uint16 = 0xC01C
+	http2cipher_TLS_SRP_SHA_WITH_AES_128_CBC_SHA             uint16 = 0xC01D
+	http2cipher_TLS_SRP_SHA_RSA_WITH_AES_128_CBC_SHA         uint16 = 0xC01E
+	http2cipher_TLS_SRP_SHA_DSS_WITH_AES_128_CBC_SHA         uint16 = 0xC01F
+	http2cipher_TLS_SRP_SHA_WITH_AES_256_CBC_SHA             uint16 = 0xC020
+	http2cipher_TLS_SRP_SHA_RSA_WITH_AES_256_CBC_SHA         uint16 = 0xC021
+	http2cipher_TLS_SRP_SHA_DSS_WITH_AES_256_CBC_SHA         uint16 = 0xC022
+	http2cipher_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256      uint16 = 0xC023
+	http2cipher_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384      uint16 = 0xC024
+	http2cipher_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256       uint16 = 0xC025
+	http2cipher_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384       uint16 = 0xC026
+	http2cipher_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256        uint16 = 0xC027
+	http2cipher_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384        uint16 = 0xC028
+	http2cipher_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256         uint16 = 0xC029
+	http2cipher_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384         uint16 = 0xC02A
+	http2cipher_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256      uint16 = 0xC02B
+	http2cipher_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384      uint16 = 0xC02C
+	http2cipher_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256       uint16 = 0xC02D
+	http2cipher_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384       uint16 = 0xC02E
+	http2cipher_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256        uint16 = 0xC02F
+	http2cipher_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384        uint16 = 0xC030
+	http2cipher_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256         uint16 = 0xC031
+	http2cipher_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384         uint16 = 0xC032
+	http2cipher_TLS_ECDHE_PSK_WITH_RC4_128_SHA               uint16 = 0xC033
+	http2cipher_TLS_ECDHE_PSK_WITH_3DES_EDE_CBC_SHA          uint16 = 0xC034
+	http2cipher_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA           uint16 = 0xC035
+	http2cipher_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA           uint16 = 0xC036
+	http2cipher_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256        uint16 = 0xC037
+	http2cipher_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384        uint16 = 0xC038
+	http2cipher_TLS_ECDHE_PSK_WITH_NULL_SHA                  uint16 = 0xC039
+	http2cipher_TLS_ECDHE_PSK_WITH_NULL_SHA256               uint16 = 0xC03A
+	http2cipher_TLS_ECDHE_PSK_WITH_NULL_SHA384               uint16 = 0xC03B
+	http2cipher_TLS_RSA_WITH_ARIA_128_CBC_SHA256             uint16 = 0xC03C
+	http2cipher_TLS_RSA_WITH_ARIA_256_CBC_SHA384             uint16 = 0xC03D
+	http2cipher_TLS_DH_DSS_WITH_ARIA_128_CBC_SHA256          uint16 = 0xC03E
+	http2cipher_TLS_DH_DSS_WITH_ARIA_256_CBC_SHA384          uint16 = 0xC03F
+	http2cipher_TLS_DH_RSA_WITH_ARIA_128_CBC_SHA256          uint16 = 0xC040
+	http2cipher_TLS_DH_RSA_WITH_ARIA_256_CBC_SHA384          uint16 = 0xC041
+	http2cipher_TLS_DHE_DSS_WITH_ARIA_128_CBC_SHA256         uint16 = 0xC042
+	http2cipher_TLS_DHE_DSS_WITH_ARIA_256_CBC_SHA384         uint16 = 0xC043
+	http2cipher_TLS_DHE_RSA_WITH_ARIA_128_CBC_SHA256         uint16 = 0xC044
+	http2cipher_TLS_DHE_RSA_WITH_ARIA_256_CBC_SHA384         uint16 = 0xC045
+	http2cipher_TLS_DH_anon_WITH_ARIA_128_CBC_SHA256         uint16 = 0xC046
+	http2cipher_TLS_DH_anon_WITH_ARIA_256_CBC_SHA384         uint16 = 0xC047
+	http2cipher_TLS_ECDHE_ECDSA_WITH_ARIA_128_CBC_SHA256     uint16 = 0xC048
+	http2cipher_TLS_ECDHE_ECDSA_WITH_ARIA_256_CBC_SHA384     uint16 = 0xC049
+	http2cipher_TLS_ECDH_ECDSA_WITH_ARIA_128_CBC_SHA256      uint16 = 0xC04A
+	http2cipher_TLS_ECDH_ECDSA_WITH_ARIA_256_CBC_SHA384      uint16 = 0xC04B
+	http2cipher_TLS_ECDHE_RSA_WITH_ARIA_128_CBC_SHA256       uint16 = 0xC04C
+	http2cipher_TLS_ECDHE_RSA_WITH_ARIA_256_CBC_SHA384       uint16 = 0xC04D
+	http2cipher_TLS_ECDH_RSA_WITH_ARIA_128_CBC_SHA256        uint16 = 0xC04E
+	http2cipher_TLS_ECDH_RSA_WITH_ARIA_256_CBC_SHA384        uint16 = 0xC04F
+	http2cipher_TLS_RSA_WITH_ARIA_128_GCM_SHA256             uint16 = 0xC050
+	http2cipher_TLS_RSA_WITH_ARIA_256_GCM_SHA384             uint16 = 0xC051
+	http2cipher_TLS_DHE_RSA_WITH_ARIA_128_GCM_SHA256         uint16 = 0xC052
+	http2cipher_TLS_DHE_RSA_WITH_ARIA_256_GCM_SHA384         uint16 = 0xC053
+	http2cipher_TLS_DH_RSA_WITH_ARIA_128_GCM_SHA256          uint16 = 0xC054
+	http2cipher_TLS_DH_RSA_WITH_ARIA_256_GCM_SHA384          uint16 = 0xC055
+	http2cipher_TLS_DHE_DSS_WITH_ARIA_128_GCM_SHA256         uint16 = 0xC056
+	http2cipher_TLS_DHE_DSS_WITH_ARIA_256_GCM_SHA384         uint16 = 0xC057
+	http2cipher_TLS_DH_DSS_WITH_ARIA_128_GCM_SHA256          uint16 = 0xC058
+	http2cipher_TLS_DH_DSS_WITH_ARIA_256_GCM_SHA384          uint16 = 0xC059
+	http2cipher_TLS_DH_anon_WITH_ARIA_128_GCM_SHA256         uint16 = 0xC05A
+	http2cipher_TLS_DH_anon_WITH_ARIA_256_GCM_SHA384         uint16 = 0xC05B
+	http2cipher_TLS_ECDHE_ECDSA_WITH_ARIA_128_GCM_SHA256     uint16 = 0xC05C
+	http2cipher_TLS_ECDHE_ECDSA_WITH_ARIA_256_GCM_SHA384     uint16 = 0xC05D
+	http2cipher_TLS_ECDH_ECDSA_WITH_ARIA_128_GCM_SHA256      uint16 = 0xC05E
+	http2cipher_TLS_ECDH_ECDSA_WITH_ARIA_256_GCM_SHA384      uint16 = 0xC05F
+	http2cipher_TLS_ECDHE_RSA_WITH_ARIA_128_GCM_SHA256       uint16 = 0xC060
+	http2cipher_TLS_ECDHE_RSA_WITH_ARIA_256_GCM_SHA384       uint16 = 0xC061
+	http2cipher_TLS_ECDH_RSA_WITH_ARIA_128_GCM_SHA256        uint16 = 0xC062
+	http2cipher_TLS_ECDH_RSA_WITH_ARIA_256_GCM_SHA384        uint16 = 0xC063
+	http2cipher_TLS_PSK_WITH_ARIA_128_CBC_SHA256             uint16 = 0xC064
+	http2cipher_TLS_PSK_WITH_ARIA_256_CBC_SHA384             uint16 = 0xC065
+	http2cipher_TLS_DHE_PSK_WITH_ARIA_128_CBC_SHA256         uint16 = 0xC066
+	http2cipher_TLS_DHE_PSK_WITH_ARIA_256_CBC_SHA384         uint16 = 0xC067
+	http2cipher_TLS_RSA_PSK_WITH_ARIA_128_CBC_SHA256         uint16 = 0xC068
+	http2cipher_TLS_RSA_PSK_WITH_ARIA_256_CBC_SHA384         uint16 = 0xC069
+	http2cipher_TLS_PSK_WITH_ARIA_128_GCM_SHA256             uint16 = 0xC06A
+	http2cipher_TLS_PSK_WITH_ARIA_256_GCM_SHA384             uint16 = 0xC06B
+	http2cipher_TLS_DHE_PSK_WITH_ARIA_128_GCM_SHA256         uint16 = 0xC06C
+	http2cipher_TLS_DHE_PSK_WITH_ARIA_256_GCM_SHA384         uint16 = 0xC06D
+	http2cipher_TLS_RSA_PSK_WITH_ARIA_128_GCM_SHA256         uint16 = 0xC06E
+	http2cipher_TLS_RSA_PSK_WITH_ARIA_256_GCM_SHA384         uint16 = 0xC06F
+	http2cipher_TLS_ECDHE_PSK_WITH_ARIA_128_CBC_SHA256       uint16 = 0xC070
+	http2cipher_TLS_ECDHE_PSK_WITH_ARIA_256_CBC_SHA384       uint16 = 0xC071
+	http2cipher_TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_CBC_SHA256 uint16 = 0xC072
+	http2cipher_TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_CBC_SHA384 uint16 = 0xC073
+	http2cipher_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_CBC_SHA256  uint16 = 0xC074
+	http2cipher_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_CBC_SHA384  uint16 = 0xC075
+	http2cipher_TLS_ECDHE_RSA_WITH_CAMELLIA_128_CBC_SHA256   uint16 = 0xC076
+	http2cipher_TLS_ECDHE_RSA_WITH_CAMELLIA_256_CBC_SHA384   uint16 = 0xC077
+	http2cipher_TLS_ECDH_RSA_WITH_CAMELLIA_128_CBC_SHA256    uint16 = 0xC078
+	http2cipher_TLS_ECDH_RSA_WITH_CAMELLIA_256_CBC_SHA384    uint16 = 0xC079
+	http2cipher_TLS_RSA_WITH_CAMELLIA_128_GCM_SHA256         uint16 = 0xC07A
+	http2cipher_TLS_RSA_WITH_CAMELLIA_256_GCM_SHA384         uint16 = 0xC07B
+	http2cipher_TLS_DHE_RSA_WITH_CAMELLIA_128_GCM_SHA256     uint16 = 0xC07C
+	http2cipher_TLS_DHE_RSA_WITH_CAMELLIA_256_GCM_SHA384     uint16 = 0xC07D
+	http2cipher_TLS_DH_RSA_WITH_CAMELLIA_128_GCM_SHA256      uint16 = 0xC07E
+	http2cipher_TLS_DH_RSA_WITH_CAMELLIA_256_GCM_SHA384      uint16 = 0xC07F
+	http2cipher_TLS_DHE_DSS_WITH_CAMELLIA_128_GCM_SHA256     uint16 = 0xC080
+	http2cipher_TLS_DHE_DSS_WITH_CAMELLIA_256_GCM_SHA384     uint16 = 0xC081
+	http2cipher_TLS_DH_DSS_WITH_CAMELLIA_128_GCM_SHA256      uint16 = 0xC082
+	http2cipher_TLS_DH_DSS_WITH_CAMELLIA_256_GCM_SHA384      uint16 = 0xC083
+	http2cipher_TLS_DH_anon_WITH_CAMELLIA_128_GCM_SHA256     uint16 = 0xC084
+	http2cipher_TLS_DH_anon_WITH_CAMELLIA_256_GCM_SHA384     uint16 = 0xC085
+	http2cipher_TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_GCM_SHA256 uint16 = 0xC086
+	http2cipher_TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_GCM_SHA384 uint16 = 0xC087
+	http2cipher_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_GCM_SHA256  uint16 = 0xC088
+	http2cipher_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_GCM_SHA384  uint16 = 0xC089
+	http2cipher_TLS_ECDHE_RSA_WITH_CAMELLIA_128_GCM_SHA256   uint16 = 0xC08A
+	http2cipher_TLS_ECDHE_RSA_WITH_CAMELLIA_256_GCM_SHA384   uint16 = 0xC08B
+	http2cipher_TLS_ECDH_RSA_WITH_CAMELLIA_128_GCM_SHA256    uint16 = 0xC08C
+	http2cipher_TLS_ECDH_RSA_WITH_CAMELLIA_256_GCM_SHA384    uint16 = 0xC08D
+	http2cipher_TLS_PSK_WITH_CAMELLIA_128_GCM_SHA256         uint16 = 0xC08E
+	http2cipher_TLS_PSK_WITH_CAMELLIA_256_GCM_SHA384         uint16 = 0xC08F
+	http2cipher_TLS_DHE_PSK_WITH_CAMELLIA_128_GCM_SHA256     uint16 = 0xC090
+	http2cipher_TLS_DHE_PSK_WITH_CAMELLIA_256_GCM_SHA384     uint16 = 0xC091
+	http2cipher_TLS_RSA_PSK_WITH_CAMELLIA_128_GCM_SHA256     uint16 = 0xC092
+	http2cipher_TLS_RSA_PSK_WITH_CAMELLIA_256_GCM_SHA384     uint16 = 0xC093
+	http2cipher_TLS_PSK_WITH_CAMELLIA_128_CBC_SHA256         uint16 = 0xC094
+	http2cipher_TLS_PSK_WITH_CAMELLIA_256_CBC_SHA384         uint16 = 0xC095
+	http2cipher_TLS_DHE_PSK_WITH_CAMELLIA_128_CBC_SHA256     uint16 = 0xC096
+	http2cipher_TLS_DHE_PSK_WITH_CAMELLIA_256_CBC_SHA384     uint16 = 0xC097
+	http2cipher_TLS_RSA_PSK_WITH_CAMELLIA_128_CBC_SHA256     uint16 = 0xC098
+	http2cipher_TLS_RSA_PSK_WITH_CAMELLIA_256_CBC_SHA384     uint16 = 0xC099
+	http2cipher_TLS_ECDHE_PSK_WITH_CAMELLIA_128_CBC_SHA256   uint16 = 0xC09A
+	http2cipher_TLS_ECDHE_PSK_WITH_CAMELLIA_256_CBC_SHA384   uint16 = 0xC09B
+	http2cipher_TLS_RSA_WITH_AES_128_CCM                     uint16 = 0xC09C
+	http2cipher_TLS_RSA_WITH_AES_256_CCM                     uint16 = 0xC09D
+	http2cipher_TLS_DHE_RSA_WITH_AES_128_CCM                 uint16 = 0xC09E
+	http2cipher_TLS_DHE_RSA_WITH_AES_256_CCM                 uint16 = 0xC09F
+	http2cipher_TLS_RSA_WITH_AES_128_CCM_8                   uint16 = 0xC0A0
+	http2cipher_TLS_RSA_WITH_AES_256_CCM_8                   uint16 = 0xC0A1
+	http2cipher_TLS_DHE_RSA_WITH_AES_128_CCM_8               uint16 = 0xC0A2
+	http2cipher_TLS_DHE_RSA_WITH_AES_256_CCM_8               uint16 = 0xC0A3
+	http2cipher_TLS_PSK_WITH_AES_128_CCM                     uint16 = 0xC0A4
+	http2cipher_TLS_PSK_WITH_AES_256_CCM                     uint16 = 0xC0A5
+	http2cipher_TLS_DHE_PSK_WITH_AES_128_CCM                 uint16 = 0xC0A6
+	http2cipher_TLS_DHE_PSK_WITH_AES_256_CCM                 uint16 = 0xC0A7
+	http2cipher_TLS_PSK_WITH_AES_128_CCM_8                   uint16 = 0xC0A8
+	http2cipher_TLS_PSK_WITH_AES_256_CCM_8                   uint16 = 0xC0A9
+	http2cipher_TLS_PSK_DHE_WITH_AES_128_CCM_8               uint16 = 0xC0AA
+	http2cipher_TLS_PSK_DHE_WITH_AES_256_CCM_8               uint16 = 0xC0AB
+	http2cipher_TLS_ECDHE_ECDSA_WITH_AES_128_CCM             uint16 = 0xC0AC
+	http2cipher_TLS_ECDHE_ECDSA_WITH_AES_256_CCM             uint16 = 0xC0AD
+	http2cipher_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8           uint16 = 0xC0AE
+	http2cipher_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8           uint16 = 0xC0AF
+	// Unassigned uint16 =  0xC0B0-FF
+	// Unassigned uint16 =  0xC1-CB,*
+	// Unassigned uint16 =  0xCC00-A7
+	http2cipher_TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256   uint16 = 0xCCA8
+	http2cipher_TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 uint16 = 0xCCA9
+	http2cipher_TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256     uint16 = 0xCCAA
+	http2cipher_TLS_PSK_WITH_CHACHA20_POLY1305_SHA256         uint16 = 0xCCAB
+	http2cipher_TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256   uint16 = 0xCCAC
+	http2cipher_TLS_DHE_PSK_WITH_CHACHA20_POLY1305_SHA256     uint16 = 0xCCAD
+	http2cipher_TLS_RSA_PSK_WITH_CHACHA20_POLY1305_SHA256     uint16 = 0xCCAE
+)
+
+// isBadCipher reports whether the cipher is blacklisted by the HTTP/2 spec.
+// References:
+// https://tools.ietf.org/html/rfc7540#appendix-A
+// Reject cipher suites from Appendix A.
+// "This list includes those cipher suites that do not
+// offer an ephemeral key exchange and those that are
+// based on the TLS null, stream or block cipher type"
+func http2isBadCipher(cipher uint16) bool {
+	switch cipher {
+	case http2cipher_TLS_NULL_WITH_NULL_NULL,
+		http2cipher_TLS_RSA_WITH_NULL_MD5,
+		http2cipher_TLS_RSA_WITH_NULL_SHA,
+		http2cipher_TLS_RSA_EXPORT_WITH_RC4_40_MD5,
+		http2cipher_TLS_RSA_WITH_RC4_128_MD5,
+		http2cipher_TLS_RSA_WITH_RC4_128_SHA,
+		http2cipher_TLS_RSA_EXPORT_WITH_RC2_CBC_40_MD5,
+		http2cipher_TLS_RSA_WITH_IDEA_CBC_SHA,
+		http2cipher_TLS_RSA_EXPORT_WITH_DES40_CBC_SHA,
+		http2cipher_TLS_RSA_WITH_DES_CBC_SHA,
+		http2cipher_TLS_RSA_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_DH_DSS_EXPORT_WITH_DES40_CBC_SHA,
+		http2cipher_TLS_DH_DSS_WITH_DES_CBC_SHA,
+		http2cipher_TLS_DH_DSS_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_DH_RSA_EXPORT_WITH_DES40_CBC_SHA,
+		http2cipher_TLS_DH_RSA_WITH_DES_CBC_SHA,
+		http2cipher_TLS_DH_RSA_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_DHE_DSS_EXPORT_WITH_DES40_CBC_SHA,
+		http2cipher_TLS_DHE_DSS_WITH_DES_CBC_SHA,
+		http2cipher_TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_DHE_RSA_EXPORT_WITH_DES40_CBC_SHA,
+		http2cipher_TLS_DHE_RSA_WITH_DES_CBC_SHA,
+		http2cipher_TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_DH_anon_EXPORT_WITH_RC4_40_MD5,
+		http2cipher_TLS_DH_anon_WITH_RC4_128_MD5,
+		http2cipher_TLS_DH_anon_EXPORT_WITH_DES40_CBC_SHA,
+		http2cipher_TLS_DH_anon_WITH_DES_CBC_SHA,
+		http2cipher_TLS_DH_anon_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_KRB5_WITH_DES_CBC_SHA,
+		http2cipher_TLS_KRB5_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_KRB5_WITH_RC4_128_SHA,
+		http2cipher_TLS_KRB5_WITH_IDEA_CBC_SHA,
+		http2cipher_TLS_KRB5_WITH_DES_CBC_MD5,
+		http2cipher_TLS_KRB5_WITH_3DES_EDE_CBC_MD5,
+		http2cipher_TLS_KRB5_WITH_RC4_128_MD5,
+		http2cipher_TLS_KRB5_WITH_IDEA_CBC_MD5,
+		http2cipher_TLS_KRB5_EXPORT_WITH_DES_CBC_40_SHA,
+		http2cipher_TLS_KRB5_EXPORT_WITH_RC2_CBC_40_SHA,
+		http2cipher_TLS_KRB5_EXPORT_WITH_RC4_40_SHA,
+		http2cipher_TLS_KRB5_EXPORT_WITH_DES_CBC_40_MD5,
+		http2cipher_TLS_KRB5_EXPORT_WITH_RC2_CBC_40_MD5,
+		http2cipher_TLS_KRB5_EXPORT_WITH_RC4_40_MD5,
+		http2cipher_TLS_PSK_WITH_NULL_SHA,
+		http2cipher_TLS_DHE_PSK_WITH_NULL_SHA,
+		http2cipher_TLS_RSA_PSK_WITH_NULL_SHA,
+		http2cipher_TLS_RSA_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_DH_DSS_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_DH_RSA_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_DHE_DSS_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_DHE_RSA_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_DH_anon_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_RSA_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_DH_DSS_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_DH_RSA_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_DHE_DSS_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_DHE_RSA_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_DH_anon_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_RSA_WITH_NULL_SHA256,
+		http2cipher_TLS_RSA_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_RSA_WITH_AES_256_CBC_SHA256,
+		http2cipher_TLS_DH_DSS_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_DH_RSA_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_DHE_DSS_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA,
+		http2cipher_TLS_DH_DSS_WITH_CAMELLIA_128_CBC_SHA,
+		http2cipher_TLS_DH_RSA_WITH_CAMELLIA_128_CBC_SHA,
+		http2cipher_TLS_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA,
+		http2cipher_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA,
+		http2cipher_TLS_DH_anon_WITH_CAMELLIA_128_CBC_SHA,
+		http2cipher_TLS_DHE_RSA_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_DH_DSS_WITH_AES_256_CBC_SHA256,
+		http2cipher_TLS_DH_RSA_WITH_AES_256_CBC_SHA256,
+		http2cipher_TLS_DHE_DSS_WITH_AES_256_CBC_SHA256,
+		http2cipher_TLS_DHE_RSA_WITH_AES_256_CBC_SHA256,
+		http2cipher_TLS_DH_anon_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_DH_anon_WITH_AES_256_CBC_SHA256,
+		http2cipher_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA,
+		http2cipher_TLS_DH_DSS_WITH_CAMELLIA_256_CBC_SHA,
+		http2cipher_TLS_DH_RSA_WITH_CAMELLIA_256_CBC_SHA,
+		http2cipher_TLS_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA,
+		http2cipher_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA,
+		http2cipher_TLS_DH_anon_WITH_CAMELLIA_256_CBC_SHA,
+		http2cipher_TLS_PSK_WITH_RC4_128_SHA,
+		http2cipher_TLS_PSK_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_PSK_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_PSK_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_DHE_PSK_WITH_RC4_128_SHA,
+		http2cipher_TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_DHE_PSK_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_DHE_PSK_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_RSA_PSK_WITH_RC4_128_SHA,
+		http2cipher_TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_RSA_PSK_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_RSA_PSK_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_RSA_WITH_SEED_CBC_SHA,
+		http2cipher_TLS_DH_DSS_WITH_SEED_CBC_SHA,
+		http2cipher_TLS_DH_RSA_WITH_SEED_CBC_SHA,
+		http2cipher_TLS_DHE_DSS_WITH_SEED_CBC_SHA,
+		http2cipher_TLS_DHE_RSA_WITH_SEED_CBC_SHA,
+		http2cipher_TLS_DH_anon_WITH_SEED_CBC_SHA,
+		http2cipher_TLS_RSA_WITH_AES_128_GCM_SHA256,
+		http2cipher_TLS_RSA_WITH_AES_256_GCM_SHA384,
+		http2cipher_TLS_DH_RSA_WITH_AES_128_GCM_SHA256,
+		http2cipher_TLS_DH_RSA_WITH_AES_256_GCM_SHA384,
+		http2cipher_TLS_DH_DSS_WITH_AES_128_GCM_SHA256,
+		http2cipher_TLS_DH_DSS_WITH_AES_256_GCM_SHA384,
+		http2cipher_TLS_DH_anon_WITH_AES_128_GCM_SHA256,
+		http2cipher_TLS_DH_anon_WITH_AES_256_GCM_SHA384,
+		http2cipher_TLS_PSK_WITH_AES_128_GCM_SHA256,
+		http2cipher_TLS_PSK_WITH_AES_256_GCM_SHA384,
+		http2cipher_TLS_RSA_PSK_WITH_AES_128_GCM_SHA256,
+		http2cipher_TLS_RSA_PSK_WITH_AES_256_GCM_SHA384,
+		http2cipher_TLS_PSK_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_PSK_WITH_AES_256_CBC_SHA384,
+		http2cipher_TLS_PSK_WITH_NULL_SHA256,
+		http2cipher_TLS_PSK_WITH_NULL_SHA384,
+		http2cipher_TLS_DHE_PSK_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_DHE_PSK_WITH_AES_256_CBC_SHA384,
+		http2cipher_TLS_DHE_PSK_WITH_NULL_SHA256,
+		http2cipher_TLS_DHE_PSK_WITH_NULL_SHA384,
+		http2cipher_TLS_RSA_PSK_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_RSA_PSK_WITH_AES_256_CBC_SHA384,
+		http2cipher_TLS_RSA_PSK_WITH_NULL_SHA256,
+		http2cipher_TLS_RSA_PSK_WITH_NULL_SHA384,
+		http2cipher_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_DH_DSS_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_DH_RSA_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_DH_anon_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256,
+		http2cipher_TLS_DH_DSS_WITH_CAMELLIA_256_CBC_SHA256,
+		http2cipher_TLS_DH_RSA_WITH_CAMELLIA_256_CBC_SHA256,
+		http2cipher_TLS_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA256,
+		http2cipher_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256,
+		http2cipher_TLS_DH_anon_WITH_CAMELLIA_256_CBC_SHA256,
+		http2cipher_TLS_EMPTY_RENEGOTIATION_INFO_SCSV,
+		http2cipher_TLS_ECDH_ECDSA_WITH_NULL_SHA,
+		http2cipher_TLS_ECDH_ECDSA_WITH_RC4_128_SHA,
+		http2cipher_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_ECDHE_ECDSA_WITH_NULL_SHA,
+		http2cipher_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA,
+		http2cipher_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_ECDH_RSA_WITH_NULL_SHA,
+		http2cipher_TLS_ECDH_RSA_WITH_RC4_128_SHA,
+		http2cipher_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_ECDHE_RSA_WITH_NULL_SHA,
+		http2cipher_TLS_ECDHE_RSA_WITH_RC4_128_SHA,
+		http2cipher_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_ECDH_anon_WITH_NULL_SHA,
+		http2cipher_TLS_ECDH_anon_WITH_RC4_128_SHA,
+		http2cipher_TLS_ECDH_anon_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_ECDH_anon_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_ECDH_anon_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_SRP_SHA_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_SRP_SHA_RSA_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_SRP_SHA_DSS_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_SRP_SHA_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_SRP_SHA_RSA_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_SRP_SHA_DSS_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_SRP_SHA_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_SRP_SHA_RSA_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_SRP_SHA_DSS_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
+		http2cipher_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384,
+		http2cipher_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+		http2cipher_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384,
+		http2cipher_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256,
+		http2cipher_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384,
+		http2cipher_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256,
+		http2cipher_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384,
+		http2cipher_TLS_ECDHE_PSK_WITH_RC4_128_SHA,
+		http2cipher_TLS_ECDHE_PSK_WITH_3DES_EDE_CBC_SHA,
+		http2cipher_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA,
+		http2cipher_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA,
+		http2cipher_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
+		http2cipher_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384,
+		http2cipher_TLS_ECDHE_PSK_WITH_NULL_SHA,
+		http2cipher_TLS_ECDHE_PSK_WITH_NULL_SHA256,
+		http2cipher_TLS_ECDHE_PSK_WITH_NULL_SHA384,
+		http2cipher_TLS_RSA_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_RSA_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_DH_DSS_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_DH_DSS_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_DH_RSA_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_DH_RSA_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_DHE_DSS_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_DHE_DSS_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_DHE_RSA_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_DHE_RSA_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_DH_anon_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_DH_anon_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_ECDHE_ECDSA_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_ECDHE_ECDSA_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_ECDH_ECDSA_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_ECDH_ECDSA_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_ECDHE_RSA_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_ECDHE_RSA_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_ECDH_RSA_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_ECDH_RSA_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_RSA_WITH_ARIA_128_GCM_SHA256,
+		http2cipher_TLS_RSA_WITH_ARIA_256_GCM_SHA384,
+		http2cipher_TLS_DH_RSA_WITH_ARIA_128_GCM_SHA256,
+		http2cipher_TLS_DH_RSA_WITH_ARIA_256_GCM_SHA384,
+		http2cipher_TLS_DH_DSS_WITH_ARIA_128_GCM_SHA256,
+		http2cipher_TLS_DH_DSS_WITH_ARIA_256_GCM_SHA384,
+		http2cipher_TLS_DH_anon_WITH_ARIA_128_GCM_SHA256,
+		http2cipher_TLS_DH_anon_WITH_ARIA_256_GCM_SHA384,
+		http2cipher_TLS_ECDH_ECDSA_WITH_ARIA_128_GCM_SHA256,
+		http2cipher_TLS_ECDH_ECDSA_WITH_ARIA_256_GCM_SHA384,
+		http2cipher_TLS_ECDH_RSA_WITH_ARIA_128_GCM_SHA256,
+		http2cipher_TLS_ECDH_RSA_WITH_ARIA_256_GCM_SHA384,
+		http2cipher_TLS_PSK_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_PSK_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_DHE_PSK_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_DHE_PSK_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_RSA_PSK_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_RSA_PSK_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_PSK_WITH_ARIA_128_GCM_SHA256,
+		http2cipher_TLS_PSK_WITH_ARIA_256_GCM_SHA384,
+		http2cipher_TLS_RSA_PSK_WITH_ARIA_128_GCM_SHA256,
+		http2cipher_TLS_RSA_PSK_WITH_ARIA_256_GCM_SHA384,
+		http2cipher_TLS_ECDHE_PSK_WITH_ARIA_128_CBC_SHA256,
+		http2cipher_TLS_ECDHE_PSK_WITH_ARIA_256_CBC_SHA384,
+		http2cipher_TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_CBC_SHA384,
+		http2cipher_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_CBC_SHA384,
+		http2cipher_TLS_ECDHE_RSA_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_ECDHE_RSA_WITH_CAMELLIA_256_CBC_SHA384,
+		http2cipher_TLS_ECDH_RSA_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_ECDH_RSA_WITH_CAMELLIA_256_CBC_SHA384,
+		http2cipher_TLS_RSA_WITH_CAMELLIA_128_GCM_SHA256,
+		http2cipher_TLS_RSA_WITH_CAMELLIA_256_GCM_SHA384,
+		http2cipher_TLS_DH_RSA_WITH_CAMELLIA_128_GCM_SHA256,
+		http2cipher_TLS_DH_RSA_WITH_CAMELLIA_256_GCM_SHA384,
+		http2cipher_TLS_DH_DSS_WITH_CAMELLIA_128_GCM_SHA256,
+		http2cipher_TLS_DH_DSS_WITH_CAMELLIA_256_GCM_SHA384,
+		http2cipher_TLS_DH_anon_WITH_CAMELLIA_128_GCM_SHA256,
+		http2cipher_TLS_DH_anon_WITH_CAMELLIA_256_GCM_SHA384,
+		http2cipher_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_GCM_SHA256,
+		http2cipher_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_GCM_SHA384,
+		http2cipher_TLS_ECDH_RSA_WITH_CAMELLIA_128_GCM_SHA256,
+		http2cipher_TLS_ECDH_RSA_WITH_CAMELLIA_256_GCM_SHA384,
+		http2cipher_TLS_PSK_WITH_CAMELLIA_128_GCM_SHA256,
+		http2cipher_TLS_PSK_WITH_CAMELLIA_256_GCM_SHA384,
+		http2cipher_TLS_RSA_PSK_WITH_CAMELLIA_128_GCM_SHA256,
+		http2cipher_TLS_RSA_PSK_WITH_CAMELLIA_256_GCM_SHA384,
+		http2cipher_TLS_PSK_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_PSK_WITH_CAMELLIA_256_CBC_SHA384,
+		http2cipher_TLS_DHE_PSK_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_DHE_PSK_WITH_CAMELLIA_256_CBC_SHA384,
+		http2cipher_TLS_RSA_PSK_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_RSA_PSK_WITH_CAMELLIA_256_CBC_SHA384,
+		http2cipher_TLS_ECDHE_PSK_WITH_CAMELLIA_128_CBC_SHA256,
+		http2cipher_TLS_ECDHE_PSK_WITH_CAMELLIA_256_CBC_SHA384,
+		http2cipher_TLS_RSA_WITH_AES_128_CCM,
+		http2cipher_TLS_RSA_WITH_AES_256_CCM,
+		http2cipher_TLS_RSA_WITH_AES_128_CCM_8,
+		http2cipher_TLS_RSA_WITH_AES_256_CCM_8,
+		http2cipher_TLS_PSK_WITH_AES_128_CCM,
+		http2cipher_TLS_PSK_WITH_AES_256_CCM,
+		http2cipher_TLS_PSK_WITH_AES_128_CCM_8,
+		http2cipher_TLS_PSK_WITH_AES_256_CCM_8:
+		return true
+	default:
+		return false
+	}
+}
+
 // ClientConnPool manages a pool of HTTP/2 client connections.
 type http2ClientConnPool interface {
-	GetClientConn(req *Request, addr string) (*http2ClientConn, error)
+	GetClientConn(req *http.Request, addr string) (*http2ClientConn, error)
 	MarkDead(*http2ClientConn)
 }
 
@@ -79,7 +713,7 @@ type http2clientConnPool struct {
 	addConnCalls map[string]*http2addConnCall // in-flight addConnIfNeede calls
 }
 
-func (p *http2clientConnPool) GetClientConn(req *Request, addr string) (*http2ClientConn, error) {
+func (p *http2clientConnPool) GetClientConn(req *http.Request, addr string) (*http2ClientConn, error) {
 	return p.getClientConn(req, addr, http2dialOnMiss)
 }
 
@@ -88,7 +722,7 @@ const (
 	http2noDialOnMiss = false
 )
 
-func (p *http2clientConnPool) getClientConn(req *Request, addr string, dialOnMiss bool) (*http2ClientConn, error) {
+func (p *http2clientConnPool) getClientConn(req *http.Request, addr string, dialOnMiss bool) (*http2ClientConn, error) {
 	if http2isConnectionCloseRequest(req) && dialOnMiss {
 		// It gets its own connection.
 		const singleUse = true
@@ -281,11 +915,11 @@ func http2filterOutClientConn(in []*http2ClientConn, exclude *http2ClientConn) [
 // connection instead.
 type http2noDialClientConnPool struct{ *http2clientConnPool }
 
-func (p http2noDialClientConnPool) GetClientConn(req *Request, addr string) (*http2ClientConn, error) {
+func (p http2noDialClientConnPool) GetClientConn(req *http.Request, addr string) (*http2ClientConn, error) {
 	return p.getClientConn(req, addr, http2noDialOnMiss)
 }
 
-func http2configureTransport(t1 *Transport) (*http2Transport, error) {
+func http2configureTransport(t1 *http.Transport) (*http2Transport, error) {
 	connPool := new(http2clientConnPool)
 	t2 := &http2Transport{
 		ConnPool: http2noDialClientConnPool{connPool},
@@ -304,7 +938,7 @@ func http2configureTransport(t1 *Transport) (*http2Transport, error) {
 	if !http2strSliceContains(t1.TLSClientConfig.NextProtos, "http/1.1") {
 		t1.TLSClientConfig.NextProtos = append(t1.TLSClientConfig.NextProtos, "http/1.1")
 	}
-	upgradeFn := func(authority string, c *tls.Conn) RoundTripper {
+	upgradeFn := func(authority string, c *tls.Conn) http.RoundTripper {
 		addr := http2authorityAddr("https", authority)
 		if used, err := connPool.addConnIfNeeded(addr, t2, c); err != nil {
 			go c.Close()
@@ -316,7 +950,7 @@ func http2configureTransport(t1 *Transport) (*http2Transport, error) {
 		return t2
 	}
 	if m := t1.TLSNextProto; len(m) == 0 {
-		t1.TLSNextProto = map[string]func(string, *tls.Conn) RoundTripper{
+		t1.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{
 			"h2": upgradeFn,
 		}
 	} else {
@@ -327,7 +961,7 @@ func http2configureTransport(t1 *Transport) (*http2Transport, error) {
 
 // registerHTTPSProtocol calls Transport.RegisterProtocol but
 // convering panics into errors.
-func http2registerHTTPSProtocol(t *Transport, rt RoundTripper) (err error) {
+func http2registerHTTPSProtocol(t *http.Transport, rt http.RoundTripper) (err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			err = fmt.Errorf("%v", e)
@@ -341,10 +975,10 @@ func http2registerHTTPSProtocol(t *Transport, rt RoundTripper) (err error) {
 // if there's already has a cached connection to the host.
 type http2noDialH2RoundTripper struct{ t *http2Transport }
 
-func (rt http2noDialH2RoundTripper) RoundTrip(req *Request) (*Response, error) {
+func (rt http2noDialH2RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	res, err := rt.t.RoundTrip(req)
 	if err == http2ErrNoCachedConn {
-		return nil, ErrSkipAltProtocol
+		return nil, http.ErrSkipAltProtocol
 	}
 	return res, err
 }
@@ -2164,31 +2798,8 @@ func http2summarizeFrame(f http2Frame) string {
 	return buf.String()
 }
 
-func http2transportExpectContinueTimeout(t1 *Transport) time.Duration {
+func http2transportExpectContinueTimeout(t1 *http.Transport) time.Duration {
 	return t1.ExpectContinueTimeout
-}
-
-// isBadCipher reports whether the cipher is blacklisted by the HTTP/2 spec.
-func http2isBadCipher(cipher uint16) bool {
-	switch cipher {
-	case tls.TLS_RSA_WITH_RC4_128_SHA,
-		tls.TLS_RSA_WITH_3DES_EDE_CBC_SHA,
-		tls.TLS_RSA_WITH_AES_128_CBC_SHA,
-		tls.TLS_RSA_WITH_AES_256_CBC_SHA,
-		tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
-		tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
-		tls.TLS_ECDHE_ECDSA_WITH_RC4_128_SHA,
-		tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
-		tls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
-		tls.TLS_ECDHE_RSA_WITH_RC4_128_SHA,
-		tls.TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
-		tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-		tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
-
-		return true
-	default:
-		return false
-	}
 }
 
 type http2contextContext interface {
@@ -2197,9 +2808,9 @@ type http2contextContext interface {
 
 func http2serverConnBaseContext(c net.Conn, opts *http2ServeConnOpts) (ctx http2contextContext, cancel func()) {
 	ctx, cancel = context.WithCancel(context.Background())
-	ctx = context.WithValue(ctx, LocalAddrContextKey, c.LocalAddr())
+	ctx = context.WithValue(ctx, http.LocalAddrContextKey, c.LocalAddr())
 	if hs := opts.baseConfig(); hs != nil {
-		ctx = context.WithValue(ctx, ServerContextKey, hs)
+		ctx = context.WithValue(ctx, http.ServerContextKey, hs)
 	}
 	return
 }
@@ -2208,13 +2819,13 @@ func http2contextWithCancel(ctx http2contextContext) (_ http2contextContext, can
 	return context.WithCancel(ctx)
 }
 
-func http2requestWithContext(req *Request, ctx http2contextContext) *Request {
+func http2requestWithContext(req *http.Request, ctx http2contextContext) *http.Request {
 	return req.WithContext(ctx)
 }
 
 type http2clientTrace httptrace.ClientTrace
 
-func http2reqContext(r *Request) context.Context { return r.Context() }
+func http2reqContext(r *http.Request) context.Context { return r.Context() }
 
 func (t *http2Transport) idleConnTimeout() time.Duration {
 	if t.t1 != nil {
@@ -2223,9 +2834,9 @@ func (t *http2Transport) idleConnTimeout() time.Duration {
 	return 0
 }
 
-func http2setResponseUncompressed(res *Response) { res.Uncompressed = true }
+func http2setResponseUncompressed(res *http.Response) { res.Uncompressed = true }
 
-func http2traceGotConn(req *Request, cc *http2ClientConn) {
+func http2traceGotConn(req *http.Request, cc *http2ClientConn) {
 	trace := httptrace.ContextClientTrace(req.Context())
 	if trace == nil || trace.GotConn == nil {
 		return
@@ -2272,7 +2883,7 @@ func http2traceFirstResponseByte(trace *http2clientTrace) {
 	}
 }
 
-func http2requestTrace(req *Request) *http2clientTrace {
+func http2requestTrace(req *http.Request) *http2clientTrace {
 	trace := httptrace.ContextClientTrace(req.Context())
 	return (*http2clientTrace)(trace)
 }
@@ -2288,10 +2899,10 @@ func http2cloneTLSConfig(c *tls.Config) *tls.Config {
 	return c2
 }
 
-var _ Pusher = (*http2responseWriter)(nil)
+var _ http.Pusher = (*http2responseWriter)(nil)
 
 // Push implements http.Pusher.
-func (w *http2responseWriter) Push(target string, opts *PushOptions) error {
+func (w *http2responseWriter) Push(target string, opts *http.PushOptions) error {
 	internalOpts := http2pushOptions{}
 	if opts != nil {
 		internalOpts.Method = opts.Method
@@ -2300,7 +2911,7 @@ func (w *http2responseWriter) Push(target string, opts *PushOptions) error {
 	return w.push(target, internalOpts)
 }
 
-func http2configureServer18(h1 *Server, h2 *http2Server) error {
+func http2configureServer18(h1 *http.Server, h2 *http2Server) error {
 	if h2.IdleTimeout == 0 {
 		if h1.IdleTimeout != 0 {
 			h2.IdleTimeout = h1.IdleTimeout
@@ -2312,15 +2923,15 @@ func http2configureServer18(h1 *Server, h2 *http2Server) error {
 }
 
 func http2shouldLogPanic(panicValue interface{}) bool {
-	return panicValue != nil && panicValue != ErrAbortHandler
+	return panicValue != nil && panicValue != http.ErrAbortHandler
 }
 
-func http2reqGetBody(req *Request) func() (io.ReadCloser, error) {
+func http2reqGetBody(req *http.Request) func() (io.ReadCloser, error) {
 	return req.GetBody
 }
 
 func http2reqBodyIsNoBody(body io.ReadCloser) bool {
-	return body == NoBody
+	return body == http.NoBody
 }
 
 var http2DebugGoroutines = os.Getenv("DEBUG_HTTP2_GOROUTINES") == "1"
@@ -2529,7 +3140,7 @@ func init() {
 		"via",
 		"www-authenticate",
 	} {
-		chk := CanonicalHeaderKey(v)
+		chk := http.CanonicalHeaderKey(v)
 		http2commonLowerHeader[chk] = v
 		http2commonCanonHeader[v] = chk
 	}
@@ -2715,7 +3326,7 @@ var http2httpCodeStringCommon = map[int]string{} // n -> strconv.Itoa(n)
 
 func init() {
 	for i := 100; i <= 999; i++ {
-		if v := StatusText(i); v != "" {
+		if v := http.StatusText(i); v != "" {
 			http2httpCodeStringCommon[i] = strconv.Itoa(i)
 		}
 	}
@@ -2869,7 +3480,7 @@ func (s *http2sorter) Less(i, j int) bool { return s.v[i] < s.v[j] }
 //
 // The returned slice is only valid until s used again or returned to
 // its pool.
-func (s *http2sorter) Keys(h Header) []string {
+func (s *http2sorter) Keys(h http.Header) []string {
 	keys := s.v[:0]
 	for k := range h {
 		keys = append(keys, k)
@@ -3153,7 +3764,7 @@ func (s *http2Server) maxConcurrentStreams() uint32 {
 // The configuration conf may be nil.
 //
 // ConfigureServer must be called before s begins serving.
-func http2ConfigureServer(s *Server, conf *http2Server) error {
+func http2ConfigureServer(s *http.Server, conf *http2Server) error {
 	if s == nil {
 		panic("nil *http.Server")
 	}
@@ -3202,9 +3813,9 @@ func http2ConfigureServer(s *Server, conf *http2Server) error {
 	}
 
 	if s.TLSNextProto == nil {
-		s.TLSNextProto = map[string]func(*Server, *tls.Conn, Handler){}
+		s.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){}
 	}
-	protoHandler := func(hs *Server, c *tls.Conn, h Handler) {
+	protoHandler := func(hs *http.Server, c *tls.Conn, h http.Handler) {
 		if http2testHookOnConn != nil {
 			http2testHookOnConn()
 		}
@@ -3221,22 +3832,22 @@ func http2ConfigureServer(s *Server, conf *http2Server) error {
 type http2ServeConnOpts struct {
 	// BaseConfig optionally sets the base configuration
 	// for values. If nil, defaults are used.
-	BaseConfig *Server
+	BaseConfig *http.Server
 
 	// Handler specifies which handler to use for processing
 	// requests. If nil, BaseConfig.Handler is used. If BaseConfig
 	// or BaseConfig.Handler is nil, http.DefaultServeMux is used.
-	Handler Handler
+	Handler http.Handler
 }
 
-func (o *http2ServeConnOpts) baseConfig() *Server {
+func (o *http2ServeConnOpts) baseConfig() *http.Server {
 	if o != nil && o.BaseConfig != nil {
 		return o.BaseConfig
 	}
-	return new(Server)
+	return new(http.Server)
 }
 
-func (o *http2ServeConnOpts) handler() Handler {
+func (o *http2ServeConnOpts) handler() http.Handler {
 	if o != nil {
 		if o.Handler != nil {
 			return o.Handler
@@ -3245,7 +3856,7 @@ func (o *http2ServeConnOpts) handler() Handler {
 			return o.BaseConfig.Handler
 		}
 	}
-	return DefaultServeMux
+	return http.DefaultServeMux
 }
 
 // ServeConn serves HTTP/2 requests on the provided connection and
@@ -3347,10 +3958,10 @@ func (sc *http2serverConn) rejectConn(err http2ErrCode, debug string) {
 type http2serverConn struct {
 	// Immutable:
 	srv              *http2Server
-	hs               *Server
+	hs               *http.Server
 	conn             net.Conn
 	bw               *http2bufferedWriter // writing to conn
-	handler          Handler
+	handler          http.Handler
 	baseCtx          http2contextContext
 	framer           *http2Framer
 	doneServing      chan struct{}               // closed when serverConn.serve ends
@@ -3404,7 +4015,7 @@ type http2serverConn struct {
 func (sc *http2serverConn) maxHeaderListSize() uint32 {
 	n := sc.hs.MaxHeaderBytes
 	if n <= 0 {
-		n = DefaultMaxHeaderBytes
+		n = http.DefaultMaxHeaderBytes
 	}
 	// http2's count is in a slightly different unit and includes 32 bytes per pair.
 	// So, take the net/http.Server value and pad it up a bit, assuming 10 headers.
@@ -3448,8 +4059,8 @@ type http2stream struct {
 	wroteHeaders     bool        // whether we wrote headers (not status 100)
 	writeDeadline    *time.Timer // nil if unused
 
-	trailer    Header // accumulated trailers
-	reqTrailer Header // handler's Request.Trailer
+	trailer    http.Header // accumulated trailers
+	reqTrailer http.Header // handler's Request.Trailer
 }
 
 func (sc *http2serverConn) Framer() *http2Framer { return sc.framer }
@@ -3484,7 +4095,7 @@ func (sc *http2serverConn) state(streamID uint32) (http2streamState, *http2strea
 // setConnState calls the net/http ConnState hook for this connection, if configured.
 // Note that the net/http package does StateNew and StateClosed for us.
 // There is currently no plan for StateHijacked or hijacking HTTP/2 connections.
-func (sc *http2serverConn) setConnState(state ConnState) {
+func (sc *http2serverConn) setConnState(state http.ConnState) {
 	if sc.hs.ConnState != nil {
 		sc.hs.ConnState(sc.conn, state)
 	}
@@ -3566,7 +4177,7 @@ func (sc *http2serverConn) canonicalHeader(v string) string {
 	if sc.canonHeader == nil {
 		sc.canonHeader = make(map[string]string)
 	}
-	cv = CanonicalHeaderKey(v)
+	cv = http.CanonicalHeaderKey(v)
 	sc.canonHeader[v] = cv
 	return cv
 }
@@ -3681,8 +4292,8 @@ func (sc *http2serverConn) serve() {
 		return
 	}
 
-	sc.setConnState(StateActive)
-	sc.setConnState(StateIdle)
+	sc.setConnState(http.StateActive)
+	sc.setConnState(http.StateIdle)
 
 	if sc.srv.IdleTimeout != 0 {
 		sc.idleTimer = time.NewTimer(sc.srv.IdleTimeout)
@@ -4224,7 +4835,7 @@ func (sc *http2serverConn) closeStream(st *http2stream, err error) {
 	}
 	delete(sc.streams, st.id)
 	if len(sc.streams) == 0 {
-		sc.setConnState(StateIdle)
+		sc.setConnState(http.StateIdle)
 		if sc.srv.IdleTimeout != 0 {
 			sc.idleTimer.Reset(sc.srv.IdleTimeout)
 		}
@@ -4479,7 +5090,7 @@ func (sc *http2serverConn) processHeaders(f *http2MetaHeadersFrame) error {
 	}
 	st.reqTrailer = req.Trailer
 	if st.reqTrailer != nil {
-		st.trailer = make(Header)
+		st.trailer = make(http.Header)
 	}
 	st.body = req.Body.(*http2requestBody).pipe
 	st.declBodyBytes = req.ContentLength
@@ -4578,13 +5189,13 @@ func (sc *http2serverConn) newStream(id, pusherID uint32, state http2streamState
 		sc.curClientStreams++
 	}
 	if sc.curOpenStreams() == 1 {
-		sc.setConnState(StateActive)
+		sc.setConnState(http.StateActive)
 	}
 
 	return st
 }
 
-func (sc *http2serverConn) newWriterAndRequest(st *http2stream, f *http2MetaHeadersFrame) (*http2responseWriter, *Request, error) {
+func (sc *http2serverConn) newWriterAndRequest(st *http2stream, f *http2MetaHeadersFrame) (*http2responseWriter, *http.Request, error) {
 	sc.serveG.check()
 
 	rp := http2requestParam{
@@ -4610,7 +5221,7 @@ func (sc *http2serverConn) newWriterAndRequest(st *http2stream, f *http2MetaHead
 		return nil, nil, http2streamError(f.StreamID, http2ErrCodeProtocol)
 	}
 
-	rp.header = make(Header)
+	rp.header = make(http.Header)
 	for _, hf := range f.RegularFields() {
 		rp.header.Add(sc.canonicalHeader(hf.Name), hf.Value)
 	}
@@ -4638,10 +5249,10 @@ func (sc *http2serverConn) newWriterAndRequest(st *http2stream, f *http2MetaHead
 type http2requestParam struct {
 	method                  string
 	scheme, authority, path string
-	header                  Header
+	header                  http.Header
 }
 
-func (sc *http2serverConn) newWriterAndRequestNoBody(st *http2stream, rp http2requestParam) (*http2responseWriter, *Request, error) {
+func (sc *http2serverConn) newWriterAndRequestNoBody(st *http2stream, rp http2requestParam) (*http2responseWriter, *http.Request, error) {
 	sc.serveG.check()
 
 	var tlsState *tls.ConnectionState // nil if not scheme https
@@ -4659,16 +5270,16 @@ func (sc *http2serverConn) newWriterAndRequestNoBody(st *http2stream, rp http2re
 	}
 
 	// Setup Trailers
-	var trailer Header
+	var trailer http.Header
 	for _, v := range rp.header["Trailer"] {
 		for _, key := range strings.Split(v, ",") {
-			key = CanonicalHeaderKey(strings.TrimSpace(key))
+			key = http.CanonicalHeaderKey(strings.TrimSpace(key))
 			switch key {
 			case "Transfer-Encoding", "Trailer", "Content-Length":
 
 			default:
 				if trailer == nil {
-					trailer = make(Header)
+					trailer = make(http.Header)
 				}
 				trailer[key] = nil
 			}
@@ -4695,7 +5306,7 @@ func (sc *http2serverConn) newWriterAndRequestNoBody(st *http2stream, rp http2re
 		stream:        st,
 		needsContinue: needsContinue,
 	}
-	req := &Request{
+	req := &http.Request{
 		Method:     rp.method,
 		URL:        url_,
 		RemoteAddr: sc.remoteAddrStr,
@@ -4726,7 +5337,7 @@ func (sc *http2serverConn) newWriterAndRequestNoBody(st *http2stream, rp http2re
 }
 
 // Run on its own goroutine.
-func (sc *http2serverConn) runHandler(rw *http2responseWriter, req *Request, handler func(ResponseWriter, *Request)) {
+func (sc *http2serverConn) runHandler(rw *http2responseWriter, req *http.Request, handler func(http.ResponseWriter, *http.Request)) {
 	didPanic := true
 	defer func() {
 		rw.rws.stream.cancelCtx()
@@ -4751,7 +5362,7 @@ func (sc *http2serverConn) runHandler(rw *http2responseWriter, req *Request, han
 	didPanic = false
 }
 
-func http2handleHeaderListTooLong(w ResponseWriter, r *Request) {
+func http2handleHeaderListTooLong(w http.ResponseWriter, r *http.Request) {
 	// 10.5.1 Limits on Header Block Size:
 	// .. "A server that receives a larger header block than it is
 	// willing to handle can send an HTTP 431 (Request Header Fields Too
@@ -4922,15 +5533,15 @@ type http2responseWriter struct {
 
 // Optional http.ResponseWriter interfaces implemented.
 var (
-	_ CloseNotifier     = (*http2responseWriter)(nil)
-	_ Flusher           = (*http2responseWriter)(nil)
-	_ http2stringWriter = (*http2responseWriter)(nil)
+	_ http.CloseNotifier = (*http2responseWriter)(nil)
+	_ http.Flusher       = (*http2responseWriter)(nil)
+	_ http2stringWriter  = (*http2responseWriter)(nil)
 )
 
 type http2responseWriterState struct {
 	// immutable within a request:
 	stream *http2stream
-	req    *Request
+	req    *http.Request
 	body   *http2requestBody // to close at end of request, if DATA frames didn't
 	conn   *http2serverConn
 
@@ -4938,13 +5549,13 @@ type http2responseWriterState struct {
 	bw *bufio.Writer // writing to a chunkWriter{this *responseWriterState}
 
 	// mutated by http.Handler goroutine:
-	handlerHeader Header   // nil until called
-	snapHeader    Header   // snapshot of handlerHeader at WriteHeader time
-	trailers      []string // set in writeChunk
-	status        int      // status code passed to WriteHeader
-	wroteHeader   bool     // WriteHeader called (explicitly or implicitly). Not necessarily sent to user yet.
-	sentHeader    bool     // have we sent the header frame?
-	handlerDone   bool     // handler has finished
+	handlerHeader http.Header // nil until called
+	snapHeader    http.Header // snapshot of handlerHeader at WriteHeader time
+	trailers      []string    // set in writeChunk
+	status        int         // status code passed to WriteHeader
+	wroteHeader   bool        // WriteHeader called (explicitly or implicitly). Not necessarily sent to user yet.
+	sentHeader    bool        // have we sent the header frame?
+	handlerDone   bool        // handler has finished
 
 	sentContentLen int64 // non-zero if handler set a Content-Length header
 	wroteBytes     int64
@@ -4963,7 +5574,7 @@ func (rws *http2responseWriterState) hasTrailers() bool { return len(rws.trailer
 // response header is written. It notes that a header will need to be
 // written in the trailers at the end of the response.
 func (rws *http2responseWriterState) declareTrailer(k string) {
-	k = CanonicalHeaderKey(k)
+	k = http.CanonicalHeaderKey(k)
 	if !http2ValidTrailerHeader(k) {
 
 		rws.conn.logf("ignoring invalid trailer %q", k)
@@ -5003,12 +5614,12 @@ func (rws *http2responseWriterState) writeChunk(p []byte) (n int, err error) {
 		}
 		_, hasContentType := rws.snapHeader["Content-Type"]
 		if !hasContentType && http2bodyAllowedForStatus(rws.status) {
-			ctype = DetectContentType(p)
+			ctype = http.DetectContentType(p)
 		}
 		var date string
 		if _, ok := rws.snapHeader["Date"]; !ok {
 
-			date = time.Now().UTC().Format(TimeFormat)
+			date = time.Now().UTC().Format(http.TimeFormat)
 		}
 
 		for _, v := range rws.snapHeader["Trailer"] {
@@ -5105,7 +5716,7 @@ func (rws *http2responseWriterState) promoteUndeclaredTrailers() {
 		}
 		trailerKey := strings.TrimPrefix(k, http2TrailerPrefix)
 		rws.declareTrailer(trailerKey)
-		rws.handlerHeader[CanonicalHeaderKey(trailerKey)] = vv
+		rws.handlerHeader[http.CanonicalHeaderKey(trailerKey)] = vv
 	}
 
 	if len(rws.trailers) > 1 {
@@ -5151,13 +5762,13 @@ func (w *http2responseWriter) CloseNotify() <-chan bool {
 	return ch
 }
 
-func (w *http2responseWriter) Header() Header {
+func (w *http2responseWriter) Header() http.Header {
 	rws := w.rws
 	if rws == nil {
 		panic("Header called after Handler finished")
 	}
 	if rws.handlerHeader == nil {
-		rws.handlerHeader = make(Header)
+		rws.handlerHeader = make(http.Header)
 	}
 	return rws.handlerHeader
 }
@@ -5180,8 +5791,8 @@ func (rws *http2responseWriterState) writeHeader(code int) {
 	}
 }
 
-func http2cloneHeader(h Header) Header {
-	h2 := make(Header, len(h))
+func http2cloneHeader(h http.Header) http.Header {
+	h2 := make(http.Header, len(h))
 	for k, vv := range h {
 		vv2 := make([]string, len(vv))
 		copy(vv2, vv)
@@ -5216,7 +5827,7 @@ func (w *http2responseWriter) write(lenData int, dataB []byte, dataS string) (n 
 		w.WriteHeader(200)
 	}
 	if !http2bodyAllowedForStatus(rws.status) {
-		return 0, ErrBodyNotAllowed
+		return 0, http.ErrBodyNotAllowed
 	}
 	rws.wroteBytes += int64(len(dataB)) + int64(len(dataS))
 	if rws.sentContentLen != 0 && rws.wroteBytes > rws.sentContentLen {
@@ -5249,7 +5860,7 @@ var (
 // cannot include here because it's only defined in Go 1.8 and later.
 type http2pushOptions struct {
 	Method string
-	Header Header
+	Header http.Header
 }
 
 func (w *http2responseWriter) push(target string, opts http2pushOptions) error {
@@ -5265,7 +5876,7 @@ func (w *http2responseWriter) push(target string, opts http2pushOptions) error {
 		opts.Method = "GET"
 	}
 	if opts.Header == nil {
-		opts.Header = Header{}
+		opts.Header = http.Header{}
 	}
 	wantScheme := "http"
 	if w.rws.req.TLS != nil {
@@ -5339,7 +5950,7 @@ type http2startPushRequest struct {
 	parent *http2stream
 	method string
 	url    *url.URL
-	header Header
+	header http.Header
 	done   chan error
 }
 
@@ -5353,7 +5964,7 @@ func (sc *http2serverConn) startPush(msg http2startPushRequest) {
 	}
 
 	if !sc.pushEnabled {
-		msg.done <- ErrNotSupported
+		msg.done <- http.ErrNotSupported
 		return
 	}
 
@@ -5361,7 +5972,7 @@ func (sc *http2serverConn) startPush(msg http2startPushRequest) {
 		sc.serveG.check()
 
 		if !sc.pushEnabled {
-			return 0, ErrNotSupported
+			return 0, http.ErrNotSupported
 		}
 
 		if sc.curPushedStreams+1 > sc.clientMaxStreams {
@@ -5435,7 +6046,7 @@ var http2connHeaders = []string{
 // checkValidHTTP2RequestHeaders checks whether h is a valid HTTP/2 request,
 // per RFC 7540 Section 8.1.2.2.
 // The returned error is reported to users.
-func http2checkValidHTTP2RequestHeaders(h Header) error {
+func http2checkValidHTTP2RequestHeaders(h http.Header) error {
 	for _, k := range http2connHeaders {
 		if _, ok := h[k]; ok {
 			return fmt.Errorf("request header %q is not valid in HTTP/2", k)
@@ -5448,9 +6059,9 @@ func http2checkValidHTTP2RequestHeaders(h Header) error {
 	return nil
 }
 
-func http2new400Handler(err error) HandlerFunc {
-	return func(w ResponseWriter, r *Request) {
-		Error(w, err.Error(), StatusBadRequest)
+func http2new400Handler(err error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 }
 
@@ -5458,7 +6069,7 @@ func http2new400Handler(err error) HandlerFunc {
 // in trailers.
 // See: http://tools.ietf.org/html/rfc7230#section-4.1.2
 func http2ValidTrailerHeader(name string) bool {
-	name = CanonicalHeaderKey(name)
+	name = http.CanonicalHeaderKey(name)
 	if strings.HasPrefix(name, "If-") || http2badTrailer[name] {
 		return false
 	}
@@ -5497,7 +6108,7 @@ var http2badTrailer = map[string]bool{
 // standard library. The alternatives ended up making the cmd/go tool
 // depend on http Servers. This is the lightest option for now.
 // This is tested via the TestServeShutdown* tests in net/http.
-func http2h1ServerShutdownChan(hs *Server) <-chan struct{} {
+func http2h1ServerShutdownChan(hs *http.Server) <-chan struct{} {
 	if fn := http2testh1ServerShutdownChan; fn != nil {
 		return fn(hs)
 	}
@@ -5512,12 +6123,12 @@ func http2h1ServerShutdownChan(hs *Server) <-chan struct{} {
 }
 
 // optional test hook for h1ServerShutdownChan.
-var http2testh1ServerShutdownChan func(hs *Server) <-chan struct{}
+var http2testh1ServerShutdownChan func(hs *http.Server) <-chan struct{}
 
 // h1ServerKeepAlivesDisabled reports whether hs has its keep-alives
 // disabled. See comments on h1ServerShutdownChan above for why
 // the code is written this way.
-func http2h1ServerKeepAlivesDisabled(hs *Server) bool {
+func http2h1ServerKeepAlivesDisabled(hs *http.Server) bool {
 	var x interface{} = hs
 	type I interface {
 		doKeepAlives() bool
@@ -5593,7 +6204,7 @@ type http2Transport struct {
 	// t1, if non-nil, is the standard library Transport using
 	// this transport. Its settings are used (but not its
 	// RoundTrip method, etc).
-	t1 *Transport
+	t1 *http.Transport
 
 	connPoolOnce  sync.Once
 	connPoolOrDef http2ClientConnPool // non-nil version of ConnPool
@@ -5618,7 +6229,7 @@ var http2errTransportVersion = errors.New("http2: ConfigureTransport is only sup
 // ConfigureTransport configures a net/http HTTP/1 Transport to use HTTP/2.
 // It requires Go 1.6 or later and returns an error if the net/http package is too old
 // or if t1 has already been HTTP/2-enabled.
-func http2ConfigureTransport(t1 *Transport) error {
+func http2ConfigureTransport(t1 *http.Transport) error {
 	_, err := http2configureTransport(t1)
 	return err
 }
@@ -5683,7 +6294,7 @@ type http2ClientConn struct {
 // is created for each Transport.RoundTrip call.
 type http2clientStream struct {
 	cc            *http2ClientConn
-	req           *Request
+	req           *http.Request
 	trace         *http2clientTrace // or nil
 	ID            uint32
 	resc          chan http2resAndError
@@ -5709,8 +6320,8 @@ type http2clientStream struct {
 	pastHeaders  bool // got first MetaHeadersFrame (actual headers)
 	pastTrailers bool // got optional second MetaHeadersFrame (trailers)
 
-	trailer    Header  // accumulated trailers
-	resTrailer *Header // client's Response.Trailer
+	trailer    http.Header  // accumulated trailers
+	resTrailer *http.Header // client's Response.Trailer
 }
 
 // awaitRequestCancel runs in its own goroutine and waits for the user
@@ -5718,7 +6329,7 @@ type http2clientStream struct {
 // request to be done (any way it might be removed from the cc.streams
 // map: peer reset, successful completion, TCP connection breakage,
 // etc)
-func (cs *http2clientStream) awaitRequestCancel(req *Request) {
+func (cs *http2clientStream) awaitRequestCancel(req *http.Request) {
 	ctx := http2reqContext(req)
 	if req.Cancel == nil && ctx.Done() == nil {
 		return
@@ -5794,7 +6405,7 @@ type http2RoundTripOpt struct {
 	OnlyCachedConn bool
 }
 
-func (t *http2Transport) RoundTrip(req *Request) (*Response, error) {
+func (t *http2Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.RoundTripOpt(req, http2RoundTripOpt{})
 }
 
@@ -5820,7 +6431,7 @@ func http2authorityAddr(scheme string, authority string) (addr string) {
 }
 
 // RoundTripOpt is like RoundTrip, but takes options.
-func (t *http2Transport) RoundTripOpt(req *Request, opt http2RoundTripOpt) (*Response, error) {
+func (t *http2Transport) RoundTripOpt(req *http.Request, opt http2RoundTripOpt) (*http.Response, error) {
 	if !(req.URL.Scheme == "https" || (req.URL.Scheme == "http" && t.AllowHTTP)) {
 		return nil, errors.New("http2: unsupported scheme")
 	}
@@ -5868,7 +6479,7 @@ var (
 // response headers. It is always called with a non-nil error.
 // It returns either a request to retry (either the same request, or a
 // modified clone), or an error if the request can't be replayed.
-func http2shouldRetryRequest(req *Request, err error) (*Request, error) {
+func http2shouldRetryRequest(req *http.Request, err error) (*http.Request, error) {
 	switch err {
 	default:
 		return nil, err
@@ -6136,10 +6747,10 @@ func (cc *http2ClientConn) putFrameScratchBuffer(buf []byte) {
 // exported. At least they'll be DeepEqual for h1-vs-h2 comparisons tests.
 var http2errRequestCanceled = errors.New("net/http: request canceled")
 
-func http2commaSeparatedTrailers(req *Request) (string, error) {
+func http2commaSeparatedTrailers(req *http.Request) (string, error) {
 	keys := make([]string, 0, len(req.Trailer))
 	for k := range req.Trailer {
-		k = CanonicalHeaderKey(k)
+		k = http.CanonicalHeaderKey(k)
 		switch k {
 		case "Transfer-Encoding", "Trailer", "Content-Length":
 			return "", &http2badStringError{"invalid Trailer key", k}
@@ -6164,7 +6775,7 @@ func (cc *http2ClientConn) responseHeaderTimeout() time.Duration {
 // checkConnHeaders checks whether req has any invalid connection-level headers.
 // per RFC 7540 section 8.1.2.2: Connection-Specific Header Fields.
 // Certain headers are special-cased as okay but not transmitted later.
-func http2checkConnHeaders(req *Request) error {
+func http2checkConnHeaders(req *http.Request) error {
 	if v := req.Header.Get("Upgrade"); v != "" {
 		return fmt.Errorf("http2: invalid Upgrade request header: %q", req.Header["Upgrade"])
 	}
@@ -6180,7 +6791,7 @@ func http2checkConnHeaders(req *Request) error {
 // actualContentLength returns a sanitized version of
 // req.ContentLength, where 0 actually means zero (not unknown) and -1
 // means unknown.
-func http2actualContentLength(req *Request) int64 {
+func http2actualContentLength(req *http.Request) int64 {
 	if req.Body == nil {
 		return 0
 	}
@@ -6190,7 +6801,7 @@ func http2actualContentLength(req *Request) int64 {
 	return -1
 }
 
-func (cc *http2ClientConn) RoundTrip(req *Request) (*Response, error) {
+func (cc *http2ClientConn) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err := http2checkConnHeaders(req); err != nil {
 		return nil, err
 	}
@@ -6272,7 +6883,7 @@ func (cc *http2ClientConn) RoundTrip(req *Request) (*Response, error) {
 	bodyWritten := false
 	ctx := http2reqContext(req)
 
-	handleReadLoopResponse := func(re http2resAndError) (*Response, error) {
+	handleReadLoopResponse := func(re http2resAndError) (*http.Response, error) {
 		res := re.res
 		if re.err != nil || res.StatusCode > 299 {
 
@@ -6511,7 +7122,7 @@ type http2badStringError struct {
 func (e *http2badStringError) Error() string { return fmt.Sprintf("%s %q", e.what, e.str) }
 
 // requires cc.mu be held.
-func (cc *http2ClientConn) encodeHeaders(req *Request, addGzipHeader bool, trailers string, contentLength int64) ([]byte, error) {
+func (cc *http2ClientConn) encodeHeaders(req *http.Request, addGzipHeader bool, trailers string, contentLength int64) ([]byte, error) {
 	cc.hbuf.Reset()
 
 	host := req.Host
@@ -6619,7 +7230,7 @@ func http2shouldSendReqContentLength(method string, contentLength int64) bool {
 }
 
 // requires cc.mu be held.
-func (cc *http2ClientConn) encodeTrailers(req *Request) []byte {
+func (cc *http2ClientConn) encodeTrailers(req *http.Request) []byte {
 	cc.hbuf.Reset()
 	for k, vv := range req.Trailer {
 
@@ -6639,7 +7250,7 @@ func (cc *http2ClientConn) writeHeader(name, value string) {
 }
 
 type http2resAndError struct {
-	res *Response
+	res *http.Response
 	err error
 }
 
@@ -6881,7 +7492,7 @@ func (rl *http2clientConnReadLoop) processHeaders(f *http2MetaHeadersFrame) erro
 // As a special case, handleResponse may return (nil, nil) to skip the
 // frame (currently only used for 100 expect continue). This special
 // case is going away after Issue 13851 is fixed.
-func (rl *http2clientConnReadLoop) handleResponse(cs *http2clientStream, f *http2MetaHeadersFrame) (*Response, error) {
+func (rl *http2clientConnReadLoop) handleResponse(cs *http2clientStream, f *http2MetaHeadersFrame) (*http.Response, error) {
 	if f.Truncated {
 		return nil, http2errResponseHeaderListSize
 	}
@@ -6904,24 +7515,24 @@ func (rl *http2clientConnReadLoop) handleResponse(cs *http2clientStream, f *http
 		return nil, nil
 	}
 
-	header := make(Header)
-	res := &Response{
+	header := make(http.Header)
+	res := &http.Response{
 		Proto:      "HTTP/2.0",
 		ProtoMajor: 2,
 		Header:     header,
 		StatusCode: statusCode,
-		Status:     status + " " + StatusText(statusCode),
+		Status:     status + " " + http.StatusText(statusCode),
 	}
 	for _, hf := range f.RegularFields() {
-		key := CanonicalHeaderKey(hf.Name)
+		key := http.CanonicalHeaderKey(hf.Name)
 		if key == "Trailer" {
 			t := res.Trailer
 			if t == nil {
-				t = make(Header)
+				t = make(http.Header)
 				res.Trailer = t
 			}
 			http2foreachHeaderElement(hf.Value, func(v string) {
-				t[CanonicalHeaderKey(v)] = nil
+				t[http.CanonicalHeaderKey(v)] = nil
 			})
 		} else {
 			header[key] = append(header[key], hf.Value)
@@ -6978,9 +7589,9 @@ func (rl *http2clientConnReadLoop) processTrailers(cs *http2clientStream, f *htt
 		return http2ConnectionError(http2ErrCodeProtocol)
 	}
 
-	trailer := make(Header)
+	trailer := make(http.Header)
 	for _, hf := range f.RegularFields() {
-		key := CanonicalHeaderKey(hf.Name)
+		key := http.CanonicalHeaderKey(hf.Name)
 		trailer[key] = append(trailer[key], hf.Value)
 	}
 	cs.trailer = trailer
@@ -7182,7 +7793,7 @@ func (cs *http2clientStream) copyTrailers() {
 	for k, vv := range cs.trailer {
 		t := cs.resTrailer
 		if *t == nil {
-			*t = make(Header)
+			*t = make(http.Header)
 		}
 		(*t)[k] = vv
 	}
@@ -7400,7 +8011,7 @@ func http2strSliceContains(ss []string, s string) bool {
 
 type http2erringRoundTripper struct{ err error }
 
-func (rt http2erringRoundTripper) RoundTrip(*Request) (*Response, error) { return nil, rt.err }
+func (rt http2erringRoundTripper) RoundTrip(*http.Request) (*http.Response, error) { return nil, rt.err }
 
 // gzipReader wraps a response body so it can lazily
 // call gzip.NewReader on the first call to Read
@@ -7510,7 +8121,7 @@ func (s http2bodyWriterState) scheduleBodyWrite() {
 
 // isConnectionCloseRequest reports whether req should use its own
 // connection for a single request and then close the connection.
-func http2isConnectionCloseRequest(req *Request) bool {
+func http2isConnectionCloseRequest(req *http.Request) bool {
 	return req.Close || httplex.HeaderValuesContainsToken(req.Header["Connection"], "close")
 }
 
@@ -7681,9 +8292,9 @@ func http2splitHeaderBlock(ctx http2writeContext, headerBlock []byte, fn func(ct
 // for HTTP response headers or trailers from a server handler.
 type http2writeResHeaders struct {
 	streamID    uint32
-	httpResCode int      // 0 means no ":status" line
-	h           Header   // may be nil
-	trailers    []string // if non-nil, which keys of h to write. nil means all.
+	httpResCode int         // 0 means no ":status" line
+	h           http.Header // may be nil
+	trailers    []string    // if non-nil, which keys of h to write. nil means all.
 	endStream   bool
 
 	date          string
@@ -7749,7 +8360,7 @@ type http2writePushPromise struct {
 	streamID uint32   // pusher stream
 	method   string   // for :method
 	url      *url.URL // for :scheme, :authority, :path
-	h        Header
+	h        http.Header
 
 	// Creates an ID for a pushed stream. This runs on serveG just before
 	// the frame is written. The returned ID is copied to promisedID.
@@ -7827,7 +8438,7 @@ func (wu http2writeWindowUpdate) writeFrame(ctx http2writeContext) error {
 
 // encodeHeaders encodes an http.Header. If keys is not nil, then (k, h[k])
 // is encoded only only if k is in keys.
-func http2encodeHeaders(enc *hpack.Encoder, h Header, keys []string) {
+func http2encodeHeaders(enc *hpack.Encoder, h http.Header, keys []string) {
 	if keys == nil {
 		sorter := http2sorterPool.Get().(*http2sorter)
 
