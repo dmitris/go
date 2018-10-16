@@ -18,6 +18,8 @@ func ParseGopkgLock(file string, data []byte) (*modfile.File, error) {
 	mf := new(modfile.File)
 	var list []module.Version
 	var r *module.Version
+	replacements := map[string]string{}
+	versions := map[string]string{}
 	for lineno, line := range strings.Split(string(data), "\n") {
 		lineno++
 		if i := strings.Index(line, "#"); i >= 0 {
@@ -62,6 +64,18 @@ func ParseGopkgLock(file string, data []byte) (*modfile.File, error) {
 				}
 			}
 			r.Version = val
+			versions[r.Path] = val
+		case "source":
+			if strings.HasPrefix(val, `https://`) {
+				val = strings.Replace(val, `https://`, "", 1)
+			} else if strings.HasPrefix(val, `ssh://git@`) {
+				val = strings.Replace(val, `ssh://git@`, "", 1)
+			} else if strings.HasPrefix(val, `git@`) {
+				// transform git@foobar.com:org/repo to foobar.com/org/repo etc.
+				val = strings.Replace(val, `git@`, "", 1)
+				val = strings.Replace(val, `:`, `/`, 1)
+			}
+			replacements[r.Path] = val
 		}
 	}
 	for _, r := range list {
@@ -69,6 +83,16 @@ func ParseGopkgLock(file string, data []byte) (*modfile.File, error) {
 			return nil, fmt.Errorf("%s: empty [[projects]] stanza (%s)", file, r.Path)
 		}
 		mf.Require = append(mf.Require, &modfile.Require{Mod: r})
+		if newpath, ok := replacements[r.Path]; ok {
+			newmod := module.Version{Path: newpath}
+			if p, ok := versions[r.Path]; ok {
+				newmod.Version = p
+			}
+			mf.Replace = append(mf.Replace, &modfile.Replace{
+				Old: module.Version{Path: r.Path},
+				New: newmod,
+			})
+		}
 	}
 	return mf, nil
 }
